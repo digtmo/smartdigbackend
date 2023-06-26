@@ -2,8 +2,14 @@ const express = require('express');
 const mysql = require('mysql');
 const cors = require('cors');
 const app = express()
+const bodyParser = require('body-parser');
 
+// Habilitando el cors
 app.use(cors());
+
+// Middleware para analizar el cuerpo de la solicitud
+app.use(bodyParser.json({limit: '50mb'}));
+app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
 // Configuración de la conexión a la base de datos
 const connection = mysql.createConnection({
@@ -21,8 +27,6 @@ connection.connect((error) => {
   }
   console.log('Conexión exitosa a la base de datos.');
 
-  // Crea una instancia de la aplicación Express
-  const app = express();
 
   // Define una ruta para obtener los datos de los detalleventas
   app.get('/detalleventas', (req, res) => {
@@ -32,8 +36,6 @@ connection.connect((error) => {
     JOIN cliente c ON dv.idcliente = c.idclientes
     JOIN detalleventa p ON dv.idventas = p.idventa
   `;
-
-  
 
     connection.query(query, (error, results, fields) => {
       if (error) {
@@ -45,8 +47,34 @@ connection.connect((error) => {
     });
   });
 
+  app.post('/api/cliente', (req, res) => {
+    const clienteData = req.body;
+  
+    connection.query('INSERT INTO cliente SET ?', clienteData, (error, results, fields) => {
+      if (error) {
+        console.error('Error al insertar en la tabla Cliente: ', error);
+        return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
+      }
+      console.log('Registro insertado en la tabla Cliente con ID:', results.insertId);
+      return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
+    });
+  });
+
+  app.post('/api/detalleventa', (req, res) => {
+    const dataDetalleVenta = req.body;
+  
+    connection.query('INSERT INTO detalleventa SET ?', dataDetalleVenta, (error, results, fields) => {
+      if (error) {
+        console.error('Error al insertar en la tabla detalleventa: ', error);
+        return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
+      }
+      console.log('Registro insertado en la tabla detalleventa con ID:', results.insertId);
+      return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
+    });
+  });
+
   // Inicia el servidor
-  const port = 3000;
+  const port = 4000;
   app.listen(port, () => {
     console.log(`Servidor iniciado en el puerto ${port}`);
   });
