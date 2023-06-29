@@ -35,7 +35,9 @@ connection.connect((error) => {
     FROM ventas dv
     JOIN cliente c ON dv.idcliente = c.idclientes
     JOIN detalleventa p ON dv.idventas = p.idventa
+    JOIN productos pr ON p.idproducto = pr.idproducto
   `;
+  
 
     connection.query(query, (error, results, fields) => {
       if (error) {
@@ -72,6 +74,42 @@ connection.connect((error) => {
       return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
     });
   });
+
+  app.post('/api/productos', (req, res) => {
+    const producto = req.body;
+  
+    connection.query('INSERT INTO productos SET ?', producto, (error, results, fields) => {
+      if (error) {
+        console.error('Error al insertar en la tabla productos: ', error);
+        return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
+      }
+      console.log('Registro insertado en la tabla productos con ID:', results.insertId);
+      return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
+    });
+  });
+
+  app.post('/api/login', (req, res) => {
+    const { correo, password } = req.body;
+    const values = [correo, password];
+  
+    connection.query('SELECT * FROM usuarios WHERE correo = ? AND password = ?', values, (error, results) => {
+      if (error) {
+        console.error('Error autenticacion', error);
+        return res.status(500).json({ error: 'Error de autenticación' });
+      }
+  
+      if (results.length === 0) {
+        // El usuario y contraseña no coinciden
+        return res.status(401).json({ error: 'Credenciales inválidas' });
+      }
+  
+      // El inicio de sesión es exitoso
+      console.log('Inicio de sesion exitoso', results[0]);
+      return res.status(200).json({ message: 'Inicio de sesión exitoso' });
+    });
+  });
+  
+  
 
   // Inicia el servidor
   const port = 4000;
