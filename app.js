@@ -88,6 +88,30 @@ connection.connect((error) => {
     });
   });
 
+  app.put('/api/actualizarventa', (req, res) => {
+    const { nombrecliente, idcliente,numerotelefono, ...restoDatos } = req.body;
+    const dataDetalleVenta = req.body
+  
+    connection.query('UPDATE detalleventa SET ? WHERE idventa = ?', [restoDatos, restoDatos.idventa], (error, results, fields) => {
+      if (error) {
+        console.error('Error al actualizar ', error);
+        return res.status(500).json({ error: 'Error al actualizar la venta' });
+      }
+      console.log('Registro actualizado', results.affectedRows);
+      return res.status(200).json({ message: 'Registro actualizado' });
+    }); 
+    
+    connection.query('UPDATE cliente SET nombrecliente = ?, numerotelefono = ? WHERE idclientes = ?', [dataDetalleVenta.nombrecliente, dataDetalleVenta.numerotelefono, dataDetalleVenta.idcliente], (error, results, fields) => {
+      if (error) {
+        console.error('Error al actualizar', error);
+        return res.status(500).json({ error: 'Error al actualizar la venta' });
+      }
+      console.log('Registro actualizado', results.affectedRows);
+      return res.status(200).json({ message: 'Registro actualizado' });
+    });
+    
+  })
+
   app.post('/api/login', (req, res) => {
     const { correo, password } = req.body;
     const values = [correo, password];
