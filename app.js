@@ -3,8 +3,15 @@ const mysql = require('mysql');
 const cors = require('cors');
 const app = express()
 const bodyParser = require('body-parser');
+const http = require('http').Server(app); // Agrega esta línea
 
 // Habilitando el cors
+const io = require('socket.io')(http, {
+  cors: {
+    origin: '*',
+  },
+});
+
 app.use(cors());
 
 // Middleware para analizar el cuerpo de la solicitud
@@ -32,10 +39,11 @@ connection.connect((error) => {
   app.get('/detalleventas', (req, res) => {
     const query = `
     SELECT *
-    FROM ventas dv
+    FROM ventas dv 
     JOIN cliente c ON dv.idcliente = c.idclientes
-    JOIN detalleventa p ON dv.idventas = p.idventa
+    JOIN detalleventa p ON dv.idventa = p.idventa
     JOIN productos pr ON p.idproducto = pr.idproducto
+    ORDER BY dv.idventa DESC
   `;
   
 
@@ -44,36 +52,72 @@ connection.connect((error) => {
         console.error('Error al obtener los detalleventas: ', error);
         res.status(500).json({ error: 'Ocurrió un error al obtener los detalleventas.' });
       } else {
+        io.emit('detalleventas', results);
         res.json(results);
       }
     });
   });
 
-  app.post('/api/cliente', (req, res) => {
-    const clienteData = req.body;
   
-    connection.query('INSERT INTO cliente SET ?', clienteData, (error, results, fields) => {
+  app.post('/api/transaccion', (req, res) => {
+    const clienteData = req.body.clienteData;
+    const dataDetalleVenta = req.body.dataDetalleVenta;
+  
+    connection.beginTransaction((error) => {
       if (error) {
-        console.error('Error al insertar en la tabla Cliente: ', error);
-        return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
+        console.error('Error al iniciar transacción: ', error);
+        return res.status(500).json({ error: 'Error al iniciar transacción' });
       }
-      console.log('Registro insertado en la tabla Cliente con ID:', results.insertId);
-      return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
+  
+      connection.query('INSERT INTO cliente SET ?', clienteData, (error, clienteResults) => {
+        if (error) {
+          console.error('Error al insertar en la tabla Cliente: ', error);
+          connection.rollback(() => {
+            return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
+          });
+        }
+  
+        const detalleVentaData = { ...dataDetalleVenta };
+        connection.query('INSERT INTO detalleventa SET ?', detalleVentaData, (error, detalleVentaResults) => {
+          if (error) {
+            console.error('Error al insertar en la tabla detalleventa: ', error);
+            connection.rollback(() => {
+              return res.status(500).json({ error: 'Error al insertar en la tabla detalleventa' });
+            });
+          }
+  
+          const query = `
+            INSERT INTO ventas (idcliente, iddetalleventa, estado, fechaventa)
+            VALUES (${clienteResults.insertId}, ${detalleVentaResults.insertId}, '0', '2023-07-04');
+          `;
+  
+          connection.query(query, (error, results, fields) => {
+            if (error) {
+              console.error('Error al insertar en la tabla ventas: ', error);
+              connection.rollback(() => {
+                return res.status(500).json({ error: 'Error al insertar en la tabla ventas' });
+              });
+            }
+  
+            connection.commit((error) => {
+              if (error) {
+                console.error('Error al confirmar transacción: ', error);
+                connection.rollback(() => {
+                  return res.status(500).json({ error: 'Error al confirmar transacción' });
+                });
+              }
+  
+              console.log('Registro insertado en la tabla Cliente con ID:', clienteResults.insertId);
+              console.log('Registro insertado en la tabla detalleventa con ID:', detalleVentaResults.insertId);
+              console.log('Registro insertado en la tabla ventas con ID:', results.insertId);
+              return res.status(200).json({ message: 'Registros insertados con éxito' });
+            });
+          });
+        });
+      });
     });
   });
-
-  app.post('/api/detalleventa', (req, res) => {
-    const dataDetalleVenta = req.body;
   
-    connection.query('INSERT INTO detalleventa SET ?', dataDetalleVenta, (error, results, fields) => {
-      if (error) {
-        console.error('Error al insertar en la tabla detalleventa: ', error);
-        return res.status(500).json({ error: 'Error al insertar en la tabla Cliente' });
-      }
-      console.log('Registro insertado en la tabla detalleventa con ID:', results.insertId);
-      return res.status(200).json({ message: 'Registro insertado en la tabla Cliente' });
-    });
-  });
 
   app.post('/api/productos', (req, res) => {
     const producto = req.body;
@@ -88,29 +132,68 @@ connection.connect((error) => {
     });
   });
 
-  app.put('/api/actualizarventa', (req, res) => {
-    const { nombrecliente, idcliente,numerotelefono, ...restoDatos } = req.body;
-    const dataDetalleVenta = req.body
-  
-    connection.query('UPDATE detalleventa SET ? WHERE idventa = ?', [restoDatos, restoDatos.idventa], (error, results, fields) => {
+app.put('/api/actualizarventa', (req, res) => {
+  const clienteData = req.body.clienteData;
+  const dataDetalleVenta = req.body.dataDetalleVenta;
+  const venta = req.body.venta;
+
+  // Iniciar una transacción
+  connection.beginTransaction(function (err) {
+    if (err) {
+      console.error('Error al iniciar la transacción', err);
+      return res.status(500).json({ error: 'Error al actualizar la venta' });
+    }
+
+    // Actualizar tabla detalleventa
+    connection.query('UPDATE detalleventa SET ? WHERE idventa = ?', [dataDetalleVenta, venta.idventa], (error, results, fields) => {
       if (error) {
-        console.error('Error al actualizar ', error);
-        return res.status(500).json({ error: 'Error al actualizar la venta' });
+        console.error('Error al actualizar la tabla detalleventa', error);
+        connection.rollback(function () {
+          console.error('Transacción deshecha');
+          return res.status(500).json({ error: 'Error al actualizar la venta' });
+        });
       }
-      console.log('Registro actualizado', results.affectedRows);
-      return res.status(200).json({ message: 'Registro actualizado' });
-    }); 
-    
-    connection.query('UPDATE cliente SET nombrecliente = ?, numerotelefono = ? WHERE idclientes = ?', [dataDetalleVenta.nombrecliente, dataDetalleVenta.numerotelefono, dataDetalleVenta.idcliente], (error, results, fields) => {
-      if (error) {
-        console.error('Error al actualizar', error);
-        return res.status(500).json({ error: 'Error al actualizar la venta' });
-      }
-      console.log('Registro actualizado', results.affectedRows);
-      return res.status(200).json({ message: 'Registro actualizado' });
+
+      // Actualizar tabla cliente
+      connection.query('UPDATE cliente SET nombrecliente = ?, numerotelefono = ? WHERE idclientes = ?', [clienteData.nombrecliente, clienteData.numerotelefono, clienteData.idclientes], (error, results, fields) => {
+        if (error) {
+          console.error('Error al actualizar la tabla cliente', error);
+          connection.rollback(function () {
+            console.error('Transacción deshecha');
+            return res.status(500).json({ error: 'Error al actualizar la venta' });
+          });
+        }
+
+        // Actualizar tabla ventas solo con el estado
+        connection.query('UPDATE ventas SET estado = ? WHERE idventa = ?', [venta.estado, venta.idventa], (error, results, fields) => {
+          if (error) {
+            console.error('Error al actualizar la tabla ventas', error);
+            connection.rollback(function () {
+              console.error('Transacción deshecha');
+              return res.status(500).json({ error: 'Error al actualizar la venta' });
+            });
+          }
+
+          // Confirmar la transacción
+          connection.commit(function (err) {
+            if (err) {
+              console.error('Error al confirmar la transacción', err);
+              connection.rollback(function () {
+                console.error('Transacción deshecha');
+                return res.status(500).json({ error: 'Error al actualizar la venta' });
+              });
+            }
+
+            console.log('Registro actualizado en las tres tablas');
+            return res.status(200).json({ message: 'Registro actualizado' });
+          });
+        });
+      });
     });
-    
-  })
+  });
+});
+  
+  
 
   app.post('/api/login', (req, res) => {
     const { correo, password } = req.body;
@@ -136,9 +219,9 @@ connection.connect((error) => {
   
 
   // Inicia el servidor
-  const port = 4000;
-  app.listen(port, () => {
-    console.log(`Servidor iniciado en el puerto ${port}`);
+  const PORT = 4000;
+  http.listen(PORT, () => {
+    console.log(`Servidor escuchando en el puerto ${PORT}`);
   });
 });
 
